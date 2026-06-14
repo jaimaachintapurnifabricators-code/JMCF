@@ -222,9 +222,12 @@ export const SalesManager: React.FC = () => {
   };
 
   const handlePrint = (invoice: any) => {
+    const originalTitle = document.title;
+    document.title = ' '; // Completely remove page title from browser print header
     setPrintingInvoice(invoice);
     setTimeout(() => {
       window.print();
+      document.title = originalTitle;
       setPrintingInvoice(null);
     }, 300);
   };
@@ -247,23 +250,23 @@ export const SalesManager: React.FC = () => {
     <div className="flex-1 bg-slate-950 p-6 md:p-8 overflow-y-auto space-y-6">
       {/* Printable Area Wrapper */}
       {printingInvoice && (
-        <div className="print-area hidden p-8 max-w-2xl bg-white text-black text-xs font-mono">
+        <div className="print-area hidden p-8 w-full max-w-none bg-white text-black text-xs font-mono">
           <div className="text-center mb-6">
-            <h1 className="text-xl font-bold uppercase tracking-wide">Jai Maa Chintpurni Fabricators</h1>
+            <h1 className="text-xl font-bold uppercase tracking-wide"></h1>
             <p className="text-[10px] mt-1 text-slate-700">
-              Iron, Steel, Fabrication, TMT Bars, Pipes, Angles & Hardware Materials
+              TMT Bars
             </p>
             <p className="text-[10px] text-slate-700">
-              Address: Gaggal Road, Near Shiv Temple, Kangra, HP - 176209
+             
             </p>
             <p className="text-[10px] text-slate-700">
-              GSTIN: 02AMNPC8975K1Z8 | Mobile: +91 98160-55444, +91 94180-22111
+             
             </p>
           </div>
 
           <div className="border-t border-b border-black py-3 my-4 grid grid-cols-2 gap-4">
             <div>
-              <p><strong>Invoice Number:</strong> {printingInvoice.invoiceNumber}</p>
+              <p><strong>Invoice Number:</strong> {printingInvoice.invoiceNumber.replace('JMCF-INV-', '')}</p>
               <p><strong>Sale Date:</strong> {printingInvoice.saleDate}</p>
               <p><strong>Payment Method:</strong> {printingInvoice.paymentMethod}</p>
             </div>
@@ -318,9 +321,9 @@ export const SalesManager: React.FC = () => {
           </div>
 
           <div className="mt-16 text-center text-[10px] text-slate-500 border-t border-slate-300 pt-4">
-            Thank you for shopping with Jai Maa Chintpurni Fabricators!
+            Thank you for shopping!
             <br />
-            Subject to Kangra jurisdiction. E. & O.E.
+      
           </div>
         </div>
       )}

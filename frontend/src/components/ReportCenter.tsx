@@ -211,7 +211,10 @@ export const ReportCenter: React.FC = () => {
   };
 
   const handlePrint = () => {
+    const originalTitle = document.title;
+    document.title = ' '; // Completely remove page title from browser print header
     window.print();
+    document.title = originalTitle;
   };
 
   const partnersList = Array.from(new Set(sales.map(s => s.createdBy || 'Admin')));
