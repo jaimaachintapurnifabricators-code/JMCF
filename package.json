@@ -1,0 +1,15 @@
+{
+  "name": "jmcf-business-manager",
+  "version": "1.0.0",
+  "description": "Business Management Software for Jai Maa Chintpurni Fabricators",
+  "scripts": {
+    "install-all": "npm install --prefix backend && npm install --prefix frontend",
+    "backend": "npm run dev --prefix backend",
+    "frontend": "npm run dev --prefix frontend",
+    "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
+    "start": "concurrently \"npm run backend\" \"npm run frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

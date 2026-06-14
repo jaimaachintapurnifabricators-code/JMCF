@@ -1,0 +1,37 @@
+{
+  "users": [
+    {
+      "_id": "dmggbjmgvmqdo5yhx",
+      "createdAt": "2026-06-14T10:56:39.909Z",
+      "updatedAt": "2026-06-14T10:56:39.909Z",
+      "username": "admin",
+      "password": "$2b$10$e5SBrJ9jfTSuhLNqaoS5EujeFp/t.W13dZnTyrxhlcn/p2OqkmJ4i",
+      "name": "Main Admin",
+      "role": "admin"
+    },
+    {
+      "_id": "3s4akcho5mqdo5yhy",
+      "createdAt": "2026-06-14T10:56:39.910Z",
+      "updatedAt": "2026-06-14T10:56:39.910Z",
+      "username": "partner1",
+      "password": "$2b$10$.ToIpTO7gh8n9QZOs8Gc7uoKAkDM2GmqLOES0zwx/5VqQMtu/w/aC",
+      "name": "Partner 1 (Raman)",
+      "role": "partner"
+    },
+    {
+      "_id": "ukzyhlphomqdo5yhy",
+      "createdAt": "2026-06-14T10:56:39.910Z",
+      "updatedAt": "2026-06-14T10:56:39.910Z",
+      "username": "partner2",
+      "password": "$2b$10$gObbUGnc.8kU5o7FdViJcedhywCeY104rLzmqWuW9JL5TZIIkyeCi",
+      "name": "Partner 2 (Suresh)",
+      "role": "partner"
+    }
+  ],
+  "purchases": [],
+  "sales": [],
+  "products": [],
+  "customers": [],
+  "suppliers": [],
+  "activityLogs": []
+}
