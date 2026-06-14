@@ -10,6 +10,7 @@ import {
   Edit2,
   Trash2,
   AlertTriangle,
+  AlertCircle,
   X,
   ShieldAlert,
   Download,

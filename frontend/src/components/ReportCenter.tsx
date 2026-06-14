@@ -201,7 +201,7 @@ export const ReportCenter: React.FC = () => {
 
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook_new() || wb, ws, 'Report');
+    XLSX.utils.book_append_sheet(wb, ws, 'Report');
 
     if (format === 'xlsx') {
       XLSX.writeFile(wb, `${fileName}.xlsx`);

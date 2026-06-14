@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:5001/api';
+const API_BASE_URL = window.location.port === '5173' ? 'http://localhost:5001/api' : '/api';
 
 async function request(endpoint: string, options: RequestInit = {}) {
   const token = localStorage.getItem('token');
