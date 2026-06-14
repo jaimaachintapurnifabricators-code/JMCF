@@ -52,7 +52,7 @@ app.get('/health', (req, res) => {
 if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
   const distPath = path.join(__dirname, '../frontend/dist');
   app.use(express.static(distPath));
-  app.get('*', (req, res) => {
+  app.get('*all', (req, res) => {
     if (req.path.startsWith('/api')) {
       return res.status(404).json({ message: 'API endpoint not found' });
     }
