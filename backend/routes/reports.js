@@ -50,7 +50,10 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
     // 7. Top Selling Products
     const salesGroup = {};
     sales.forEach(s => {
-      salesGroup[s.productName] = (salesGroup[s.productName] || 0) + Number(s.quantity);
+      const items = s.items && s.items.length > 0 ? s.items : [{ productName: s.productName, quantity: s.quantity }];
+      items.forEach(it => {
+        salesGroup[it.productName] = (salesGroup[it.productName] || 0) + Number(it.quantity);
+      });
     });
     const topProducts = Object.keys(salesGroup).map(name => ({
       name,
@@ -58,15 +61,21 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
     })).sort((a, b) => b.quantity - a.quantity).slice(0, 5);
 
     // 8. Recent Transactions (unified sales & purchases)
-    const formattedSales = sales.map(s => ({
-      id: s._id,
-      type: 'Sale',
-      date: s.saleDate,
-      partyName: s.customerName,
-      details: `${s.productName} (${s.quantity} units)`,
-      amount: s.totalAmount,
-      status: s.paymentMethod
-    }));
+    const formattedSales = sales.map(s => {
+      let details = `${s.productName} (${s.quantity} units)`;
+      if (s.items && s.items.length > 1) {
+        details = `${s.items.length} items: ${s.items.map(it => it.productName).join(', ')}`;
+      }
+      return {
+        id: s._id,
+        type: 'Sale',
+        date: s.saleDate,
+        partyName: s.customerName,
+        details,
+        amount: s.totalAmount,
+        status: s.paymentMethod
+      };
+    });
 
     const formattedPurchases = purchases.map(p => ({
       id: p._id,

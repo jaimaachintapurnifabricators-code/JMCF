@@ -32,17 +32,27 @@ router.post('/', authenticateToken, async (req, res) => {
     customerMobile,
     customerAddress,
     customerGST,
-    productName,
-    quantity,
-    unit,
-    rate,
-    discount,
-    gstPercent,
-    totalAmount,
-    paymentMethod
+    paymentMethod,
+    totalAmount
   } = req.body;
 
-  if (!customerName || !productName || !quantity || !rate || !totalAmount || !paymentMethod) {
+  let items = req.body.items;
+  
+  // Backward compatibility check
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    items = [{
+      productName: req.body.productName,
+      quantity: Number(req.body.quantity),
+      unit: req.body.unit || 'Kg',
+      rate: Number(req.body.rate),
+      rateBasis: req.body.rateBasis || 'per_kg',
+      discount: Number(req.body.discount || 0),
+      gstPercent: Number(req.body.gstPercent || 0)
+    }];
+  }
+
+  // Validate required fields
+  if (!customerName || !paymentMethod || !totalAmount || !items[0].productName || !items[0].quantity || !items[0].rate) {
     return res.status(400).json({ success: false, message: 'Required fields are missing' });
   }
 
@@ -59,20 +69,34 @@ router.post('/', authenticateToken, async (req, res) => {
       customerMobile: customerMobile || '',
       customerAddress: customerAddress || '',
       customerGST: customerGST || '',
-      productName: productName.trim(),
-      quantity: Number(quantity),
-      unit: unit || 'Kg',
-      rate: Number(rate),
-      discount: Number(discount || 0),
-      gstPercent: Number(gstPercent || 0),
+      // Legacy fields for backward compatibility
+      productName: items[0].productName.trim(),
+      quantity: Number(items[0].quantity),
+      unit: items[0].unit || 'Kg',
+      rate: Number(items[0].rate),
+      rateBasis: items[0].rateBasis || 'per_kg',
+      discount: Number(items[0].discount || 0),
+      gstPercent: Number(items[0].gstPercent || 0),
+      // Multi-item details
+      items: items.map(item => ({
+        productName: item.productName.trim(),
+        quantity: Number(item.quantity),
+        unit: item.unit || 'Kg',
+        rate: Number(item.rate),
+        rateBasis: item.rateBasis || 'per_kg',
+        discount: Number(item.discount || 0),
+        gstPercent: Number(item.gstPercent || 0)
+      })),
       totalAmount: Number(totalAmount),
       paymentMethod: paymentMethod || 'Cash',
       createdBy: req.user.username,
       createdById: req.user.id
     });
 
-    // Deduct stock from inventory (applying unit)
-    await updateInventoryForSale(productName, quantity, unit || 'Kg');
+    // Deduct stock from inventory for each item
+    for (const item of items) {
+      await updateInventoryForSale(item.productName, item.quantity, item.unit || 'Kg');
+    }
 
     // Update customer ledger
     await updateCustomerLedger(
@@ -85,10 +109,11 @@ router.post('/', authenticateToken, async (req, res) => {
     );
 
     // Activity log
+    const itemsDesc = items.map(it => `${it.productName} (${it.quantity} ${it.unit || 'Kg'})`).join(', ');
     await logActivity(
       req.user,
       'SALE_CREATE',
-      `Created invoice ${invoiceNumber} for ${customerName}. Product: ${productName}, Qty: ${quantity} ${unit || 'Kg'}, Total: ₹${totalAmount}.`
+      `Created invoice ${invoiceNumber} for ${customerName}. Items: ${itemsDesc}, Total: ₹${totalAmount}.`
     );
 
     res.status(201).json({ success: true, sale: newSale });
@@ -107,12 +132,6 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
     customerMobile,
     customerAddress,
     customerGST,
-    productName,
-    quantity,
-    unit,
-    rate,
-    discount,
-    gstPercent,
     totalAmount,
     paymentMethod
   } = req.body;
@@ -123,33 +142,82 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Sale invoice not found' });
     }
 
-    // 1. Revert old stock deduction
-    await revertInventoryForSale(oldSale.productName, oldSale.quantity, oldSale.unit || 'Kg');
+    // 1. Revert old stock deduction for all old items
+    const oldItems = oldSale.items || [{
+      productName: oldSale.productName,
+      quantity: oldSale.quantity,
+      unit: oldSale.unit || 'Kg'
+    }];
+    for (const item of oldItems) {
+      await revertInventoryForSale(item.productName, item.quantity, item.unit || 'Kg');
+    }
 
     // 2. Revert old customer ledger outstanding
     await revertCustomerLedger(oldSale.customerName, oldSale.totalAmount, oldSale.paymentMethod);
 
-    // 3. Update the sale document
+    // 3. Parse updated items array or construct from single field parameters
+    let items = req.body.items;
+    if (!items) {
+      if (req.body.productName || req.body.quantity) {
+        items = [{
+          productName: req.body.productName || oldSale.productName,
+          quantity: Number(req.body.quantity !== undefined ? req.body.quantity : oldSale.quantity),
+          unit: req.body.unit || oldSale.unit || 'Kg',
+          rate: Number(req.body.rate !== undefined ? req.body.rate : oldSale.rate),
+          rateBasis: req.body.rateBasis || oldSale.rateBasis || 'per_kg',
+          discount: Number(req.body.discount !== undefined ? req.body.discount : oldSale.discount || 0),
+          gstPercent: Number(req.body.gstPercent !== undefined ? req.body.gstPercent : oldSale.gstPercent || 0)
+        }];
+      } else {
+        items = oldSale.items || [{
+          productName: oldSale.productName,
+          quantity: oldSale.quantity,
+          unit: oldSale.unit || 'Kg',
+          rate: oldSale.rate,
+          rateBasis: oldSale.rateBasis || 'per_kg',
+          discount: oldSale.discount || 0,
+          gstPercent: oldSale.gstPercent || 0
+        }];
+      }
+    }
+
+    // 4. Update the sale document
     const updatedFields = {
       saleDate: saleDate || oldSale.saleDate,
       customerName: customerName ? customerName.trim() : oldSale.customerName,
       customerMobile: customerMobile !== undefined ? customerMobile : oldSale.customerMobile,
       customerAddress: customerAddress !== undefined ? customerAddress : oldSale.customerAddress,
       customerGST: customerGST !== undefined ? customerGST : oldSale.customerGST,
-      productName: productName ? productName.trim() : oldSale.productName,
-      quantity: quantity !== undefined ? Number(quantity) : oldSale.quantity,
-      unit: unit || oldSale.unit || 'Kg',
-      rate: rate !== undefined ? Number(rate) : oldSale.rate,
-      discount: discount !== undefined ? Number(discount) : oldSale.discount,
-      gstPercent: gstPercent !== undefined ? Number(gstPercent) : oldSale.gstPercent,
+      // Legacy fields for backward compatibility
+      productName: items[0].productName.trim(),
+      quantity: Number(items[0].quantity),
+      unit: items[0].unit || 'Kg',
+      rate: Number(items[0].rate),
+      rateBasis: items[0].rateBasis || 'per_kg',
+      discount: Number(items[0].discount || 0),
+      gstPercent: Number(items[0].gstPercent || 0),
+      // Multi-item details
+      items: items.map(item => ({
+        productName: item.productName.trim(),
+        quantity: Number(item.quantity),
+        unit: item.unit || 'Kg',
+        rate: Number(item.rate),
+        rateBasis: item.rateBasis || 'per_kg',
+        discount: Number(item.discount || 0),
+        gstPercent: Number(item.gstPercent || 0)
+      })),
       totalAmount: totalAmount !== undefined ? Number(totalAmount) : oldSale.totalAmount,
       paymentMethod: paymentMethod || oldSale.paymentMethod
     };
 
     const result = await db.updateOne('sales', { _id: id }, updatedFields);
 
-    // 4. Apply new stock deduction and customer ledger outstanding
-    await updateInventoryForSale(updatedFields.productName, updatedFields.quantity, updatedFields.unit);
+    // 5. Apply new stock deduction for each item
+    for (const item of updatedFields.items) {
+      await updateInventoryForSale(item.productName, item.quantity, item.unit || 'Kg');
+    }
+
+    // 6. Update customer ledger
     await updateCustomerLedger(
       updatedFields.customerName,
       updatedFields.customerMobile,
@@ -160,10 +228,11 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
     );
 
     // Log Activity
+    const itemsDesc = updatedFields.items.map(it => `${it.productName} (${it.quantity} ${it.unit || 'Kg'})`).join(', ');
     await logActivity(
       req.user,
       'SALE_UPDATE',
-      `Modified invoice ${oldSale.invoiceNumber} (Customer: ${updatedFields.customerName}, Product: ${updatedFields.productName}).`
+      `Modified invoice ${oldSale.invoiceNumber} for ${updatedFields.customerName}. Items: ${itemsDesc}, Total: ₹${updatedFields.totalAmount}.`
     );
 
     res.json({ success: true, sale: result.doc });
@@ -183,8 +252,15 @@ router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Sale invoice not found' });
     }
 
-    // 1. Revert inventory
-    await revertInventoryForSale(sale.productName, sale.quantity, sale.unit || 'Kg');
+    // 1. Revert inventory for all items
+    const oldItems = sale.items || [{
+      productName: sale.productName,
+      quantity: sale.quantity,
+      unit: sale.unit || 'Kg'
+    }];
+    for (const item of oldItems) {
+      await revertInventoryForSale(item.productName, item.quantity, item.unit || 'Kg');
+    }
 
     // 2. Revert customer ledger balance
     await revertCustomerLedger(sale.customerName, sale.totalAmount, sale.paymentMethod);

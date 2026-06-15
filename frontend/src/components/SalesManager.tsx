@@ -35,6 +35,7 @@ export const SalesManager: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [invoiceItems, setInvoiceItems] = useState<any[]>([]);
 
   // Print Mode State
   const [printingInvoice, setPrintingInvoice] = useState<any>(null);
@@ -79,13 +80,45 @@ export const SalesManager: React.FC = () => {
     fetchData();
   }, []);
 
-  // Live total amount calculation
-  const subtotal = (unit === 'Ton' && rateBasis === 'per_kg')
-    ? quantity * 1000 * rate
-    : quantity * rate;
-  const taxableAmount = Math.max(0, subtotal - Number(discount));
-  const gstAmount = taxableAmount * (gstPercent / 100);
-  const totalAmount = Math.round((taxableAmount + gstAmount) * 100) / 100;
+  // Live item composer calculations
+  const itemSubtotal = (unit === 'Ton' && rateBasis === 'per_kg')
+    ? Number(quantity || 0) * 1000 * Number(rate || 0)
+    : Number(quantity || 0) * Number(rate || 0);
+  const itemTaxableAmount = Math.max(0, itemSubtotal - Number(discount || 0));
+  const itemGstAmount = itemTaxableAmount * (gstPercent / 100);
+  const itemTotalAmount = Math.round((itemTaxableAmount + itemGstAmount) * 100) / 100;
+
+  // Aggregate invoice totals
+  const getInvoiceTotals = () => {
+    let subtotalSum = 0;
+    let discountSum = 0;
+    let gstSum = 0;
+    let grandTotalSum = 0;
+
+    invoiceItems.forEach(item => {
+      const itemSub = (item.unit === 'Ton' && item.rateBasis === 'per_kg')
+        ? Number(item.quantity) * 1000 * Number(item.rate)
+        : Number(item.quantity) * Number(item.rate);
+      
+      const itemTaxable = Math.max(0, itemSub - Number(item.discount || 0));
+      const itemGst = itemTaxable * (Number(item.gstPercent || 0) / 100);
+      const itemTotal = itemTaxable + itemGst;
+
+      subtotalSum += itemSub;
+      discountSum += Number(item.discount || 0);
+      gstSum += itemGst;
+      grandTotalSum += itemTotal;
+    });
+
+    return {
+      subtotal: subtotalSum,
+      discount: discountSum,
+      gst: gstSum,
+      grandTotal: Math.round(grandTotalSum * 100) / 100
+    };
+  };
+
+  const { subtotal: totalSubtotal, discount: totalDiscount, gst: totalGst, grandTotal: calculatedGrandTotal } = getInvoiceTotals();
 
   const resetForm = () => {
     setSaleDate(new Date().toISOString().split('T')[0]);
@@ -100,6 +133,7 @@ export const SalesManager: React.FC = () => {
     setRateBasis('per_kg');
     setDiscount(0);
     setGstPercent(18);
+    setInvoiceItems([]);
     setPaymentMethod('Cash');
     setEditingId(null);
     setSelectedProductStock(null);
@@ -118,35 +152,105 @@ export const SalesManager: React.FC = () => {
     setCustomerMobile(s.customerMobile);
     setCustomerAddress(s.customerAddress);
     setCustomerGST(s.customerGST);
-    setProductName(s.productName);
-    setQuantity(s.quantity);
-    setUnit(s.unit || 'Kg');
-    setRate(s.rate);
-    setRateBasis(s.rateBasis || 'per_kg');
-    setDiscount(s.discount);
-    setGstPercent(s.gstPercent);
-    setPaymentMethod(s.paymentMethod);
-
-    // Set stock indicator
-    const prod = products.find(p => p.name === s.productName);
-    if (prod) {
-      setSelectedProductStock(prod.currentStock);
+    
+    // Load invoiceItems
+    if (s.items && s.items.length > 0) {
+      setInvoiceItems(s.items);
+    } else {
+      // Fallback for legacy invoice records
+      setInvoiceItems([{
+        productName: s.productName,
+        quantity: s.quantity,
+        unit: s.unit || 'Kg',
+        rate: s.rate,
+        rateBasis: s.rateBasis || 'per_kg',
+        discount: s.discount || 0,
+        gstPercent: s.gstPercent || 18
+      }]);
     }
 
+    // Reset individual item fields for composer
+    setProductName('');
+    setQuantity(0);
+    setUnit('Kg');
+    setRate(0);
+    setRateBasis('per_kg');
+    setDiscount(0);
+    setGstPercent(18);
+    setSelectedProductStock(null);
+    setPaymentMethod(s.paymentMethod);
     setIsModalOpen(true);
+  };
+
+  const handleAddItem = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!productName) {
+      alert('Please select a product.');
+      return;
+    }
+    if (!quantity || Number(quantity) <= 0) {
+      alert('Please enter a valid quantity.');
+      return;
+    }
+    if (!rate || Number(rate) <= 0) {
+      alert('Please enter a valid rate.');
+      return;
+    }
+
+    const newItem = {
+      productName,
+      quantity: Number(quantity),
+      unit,
+      rate: Number(rate),
+      rateBasis,
+      discount: Number(discount || 0),
+      gstPercent: Number(gstPercent || 0)
+    };
+
+    setInvoiceItems([...invoiceItems, newItem]);
+    
+    // Clear product-specific fields for the next entry
+    setProductName('');
+    setQuantity(0);
+    setUnit('Kg');
+    setRate(0);
+    setRateBasis('per_kg');
+    setDiscount(0);
+    setGstPercent(18);
+    setSelectedProductStock(null);
+  };
+
+  const handleRemoveItem = (index: number) => {
+    const updated = [...invoiceItems];
+    updated.splice(index, 1);
+    setInvoiceItems(updated);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!customerName || !productName || quantity <= 0 || rate <= 0) {
-      setError('Please fill in all mandatory fields (Customer, Product, Quantity, Rate).');
+    if (!customerName || !paymentMethod) {
+      setError('Please fill in customer name and payment method.');
       return;
     }
 
-    if (selectedProductStock !== null && quantity > selectedProductStock && !editingId) {
-      if (!window.confirm(`Warning: Requested quantity (${quantity}) exceeds current available stock (${selectedProductStock}). Continue with invoice generation?`)) {
+    if (invoiceItems.length === 0) {
+      setError('Please add at least one product item to the invoice.');
+      return;
+    }
+
+    // Stock validations (optional alert)
+    let exceedsStock = false;
+    invoiceItems.forEach(item => {
+      const prod = products.find(p => p.name === item.productName);
+      if (prod && item.quantity > prod.currentStock) {
+        exceedsStock = true;
+      }
+    });
+    
+    if (exceedsStock && !editingId) {
+      if (!window.confirm('Alert: Some items exceed the currently available stock. Do you want to proceed?')) {
         return;
       }
     }
@@ -157,14 +261,8 @@ export const SalesManager: React.FC = () => {
       customerMobile,
       customerAddress,
       customerGST,
-      productName,
-      quantity,
-      unit,
-      rate,
-      rateBasis,
-      discount,
-      gstPercent,
-      totalAmount,
+      items: invoiceItems,
+      totalAmount: calculatedGrandTotal,
       paymentMethod
     };
 
@@ -237,7 +335,8 @@ export const SalesManager: React.FC = () => {
     return (
       s.invoiceNumber.toLowerCase().includes(query) ||
       s.customerName.toLowerCase().includes(query) ||
-      s.productName.toLowerCase().includes(query) ||
+      (s.items && s.items.some((it: any) => it.productName.toLowerCase().includes(query))) ||
+      s.productName?.toLowerCase().includes(query) ||
       (s.customerMobile && s.customerMobile.includes(query))
     );
   });
@@ -278,47 +377,88 @@ export const SalesManager: React.FC = () => {
             </div>
           </div>
 
-          <table className="w-full text-left my-4">
-            <thead>
-              <tr className="border-b border-black font-bold">
-                <th className="py-2">Material Description</th>
-                <th className="py-2 text-center">Quantity</th>
-                <th className="py-2 text-right">Rate (₹)</th>
-                <th className="py-2 text-right">Discount (₹)</th>
-                <th className="py-2 text-right">GST %</th>
-                <th className="py-2 text-right">Total (₹)</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b border-slate-200">
-                <td className="py-3 font-semibold">{printingInvoice.productName}</td>
-                <td className="py-3 text-center">{printingInvoice.quantity} {printingInvoice.unit || 'Kg'}</td>
-                <td className="py-3 text-right">₹{printingInvoice.rate} / {printingInvoice.rateBasis === 'per_kg' ? 'Kg' : (printingInvoice.unit || 'Kg')}</td>
-                <td className="py-3 text-right">₹{printingInvoice.discount || 0}</td>
-                <td className="py-3 text-right">{printingInvoice.gstPercent}%</td>
-                <td className="py-3 text-right font-bold">₹{printingInvoice.totalAmount}</td>
-              </tr>
-            </tbody>
-          </table>
+          {(() => {
+            const printItems = (printingInvoice.items && printingInvoice.items.length > 0)
+              ? printingInvoice.items
+              : [{
+                  productName: printingInvoice.productName,
+                  quantity: printingInvoice.quantity,
+                  unit: printingInvoice.unit || 'Kg',
+                  rate: printingInvoice.rate,
+                  rateBasis: printingInvoice.rateBasis || 'per_kg',
+                  discount: printingInvoice.discount || 0,
+                  gstPercent: printingInvoice.gstPercent || 0
+                }];
 
-          <div className="w-64 ml-auto border-t border-black pt-3 mt-8 text-right space-y-1.5">
-            <div className="flex justify-between text-[11px]">
-              <span>Gross Subtotal:</span>
-              <span>₹{(printingInvoice.unit === 'Ton' && printingInvoice.rateBasis === 'per_kg' ? printingInvoice.quantity * 1000 * printingInvoice.rate : printingInvoice.quantity * printingInvoice.rate).toLocaleString('en-IN')}</span>
-            </div>
-            <div className="flex justify-between text-[11px]">
-              <span>Less Discount:</span>
-              <span>- ₹{printingInvoice.discount || 0}</span>
-            </div>
-            <div className="flex justify-between text-[11px]">
-              <span>Tax (GST {printingInvoice.gstPercent}%):</span>
-              <span>₹{Math.round(((printingInvoice.unit === 'Ton' && printingInvoice.rateBasis === 'per_kg' ? printingInvoice.quantity * 1000 * printingInvoice.rate : printingInvoice.quantity * printingInvoice.rate - (printingInvoice.discount || 0)) * (printingInvoice.gstPercent / 100)) * 100) / 100}</span>
-            </div>
-            <div className="flex justify-between text-sm font-extrabold border-t border-black pt-1.5">
-              <span>Grand Total:</span>
-              <span>₹{printingInvoice.totalAmount.toLocaleString('en-IN')}</span>
-            </div>
-          </div>
+            let subtotalSum = 0;
+            let discountSum = 0;
+            let gstSum = 0;
+
+            printItems.forEach((it: any) => {
+              const itemSub = (it.unit === 'Ton' && it.rateBasis === 'per_kg')
+                ? Number(it.quantity) * 1000 * Number(it.rate)
+                : Number(it.quantity) * Number(it.rate);
+              subtotalSum += itemSub;
+              discountSum += Number(it.discount || 0);
+              const itemTaxable = Math.max(0, itemSub - Number(it.discount || 0));
+              gstSum += itemTaxable * (Number(it.gstPercent || 0) / 100);
+            });
+
+            return (
+              <>
+                <table className="w-full text-left my-4">
+                  <thead>
+                    <tr className="border-b border-black font-bold">
+                      <th className="py-2">Item Description</th>
+                      <th className="py-2 text-center">Qty / Unit</th>
+                      <th className="py-2 text-right">Rate</th>
+                      <th className="py-2 text-right">Discount</th>
+                      <th className="py-2 text-right">GST</th>
+                      <th className="py-2 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {printItems.map((item: any, idx: number) => {
+                      const itemSub = (item.unit === 'Ton' && item.rateBasis === 'per_kg')
+                        ? Number(item.quantity) * 1000 * Number(item.rate)
+                        : Number(item.quantity) * Number(item.rate);
+                      const itemTaxable = Math.max(0, itemSub - Number(item.discount || 0));
+                      const itemTotal = itemTaxable * (1 + Number(item.gstPercent || 0) / 100);
+                      return (
+                        <tr key={idx} className="border-b border-slate-100">
+                          <td className="py-3 font-semibold">{item.productName}</td>
+                          <td className="py-3 text-center">{item.quantity} {item.unit || 'Kg'}</td>
+                          <td className="py-3 text-right">₹{item.rate} / {item.rateBasis === 'per_kg' ? 'Kg' : (item.unit || 'Kg')}</td>
+                          <td className="py-3 text-right">₹{item.discount || 0}</td>
+                          <td className="py-3 text-right">{item.gstPercent}%</td>
+                          <td className="py-3 text-right font-bold">₹{Math.round(itemTotal * 100) / 100}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+
+                <div className="border-t border-black pt-4 flex flex-col items-end gap-1 font-mono text-[10px]">
+                  <div className="w-64 flex justify-between">
+                    <span>Gross Subtotal:</span>
+                    <span>₹{subtotalSum.toLocaleString('en-IN')}</span>
+                  </div>
+                  <div className="w-64 flex justify-between text-slate-700">
+                    <span>Discount Deduction:</span>
+                    <span>- ₹{discountSum || 0}</span>
+                  </div>
+                  <div className="w-64 flex justify-between text-slate-700">
+                    <span>Tax (GST):</span>
+                    <span>₹{Math.round(gstSum * 100) / 100}</span>
+                  </div>
+                  <div className="w-64 flex justify-between font-bold text-sm border-t border-dashed border-black pt-2 mt-1">
+                    <span>Invoice Grand Total:</span>
+                    <span>₹{Number(printingInvoice.totalAmount).toLocaleString('en-IN')}</span>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
 
           <div className="mt-16 text-center text-[10px] text-slate-500 border-t border-slate-300 pt-4">
             Thank you for shopping!
@@ -424,8 +564,21 @@ export const SalesManager: React.FC = () => {
                           <div className="text-[10px] text-slate-500">{s.customerMobile || 'No Mobile'}</div>
                         </td>
                         <td className="p-4">
-                          <div className="font-bold text-slate-300">{s.productName}</div>
-                          <div className="text-[10px] text-slate-500">{s.quantity} units @ ₹{s.rate}/unit</div>
+                          {s.items && s.items.length > 0 ? (
+                            <>
+                              <div className="font-bold text-slate-300">
+                                {s.items.map((it: any) => it.productName).join(', ')}
+                              </div>
+                              <span className="text-[10px] text-slate-500">
+                                {s.items.length} items billed
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <div className="font-bold text-slate-300">{s.productName}</div>
+                              <span className="text-[10px] text-slate-500">{s.quantity} {s.unit || 'Kg'} Billed</span>
+                            </>
+                          )}
                         </td>
                         <td className="p-4 text-right">
                           <div>Discount: ₹{s.discount}</div>
@@ -584,9 +737,17 @@ export const SalesManager: React.FC = () => {
                           <tr key={tx._id} className="hover:bg-slate-800/10 text-slate-350">
                             <td className="p-4 font-mono font-bold text-amber-500">{tx.invoiceNumber}</td>
                             <td className="p-4">{tx.saleDate}</td>
-                            <td className="p-4 font-bold text-slate-200">{tx.productName}</td>
+                             <td className="p-4 font-bold text-slate-200">
+                              {tx.items && tx.items.length > 0
+                                ? tx.items.map((it: any) => it.productName).join(', ')
+                                : tx.productName}
+                            </td>
                             <td className="p-4">
-                              {tx.quantity} units @ ₹{tx.rate}/unit (Less: ₹{tx.discount})
+                              {tx.items && tx.items.length > 0 ? (
+                                <span>{tx.items.length} items billed</span>
+                              ) : (
+                                <span>{tx.quantity} units @ ₹{tx.rate}/unit (Less: ₹{tx.discount})</span>
+                              )}
                             </td>
                             <td className="p-4">
                               <span className={`inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
@@ -729,105 +890,174 @@ export const SalesManager: React.FC = () => {
                 </div>
               </div>
 
-              {/* Grid 3: Product Name selection */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-800/60 pt-4">
-                <div className="md:col-span-2">
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Select Material Product *
-                  </label>
-                  <select
-                    value={productName}
-                    onChange={(e) => handleProductSelect(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-250 text-xs outline-none focus:border-amber-500 transition-all"
-                  >
-                    <option value="">-- Choose Product --</option>
-                    {products.map((p, idx) => (
-                      <option key={idx} value={p.name}>
-                        {p.name} (Stock: {p.currentStock} {p.unit})
-                      </option>
-                    ))}
-                  </select>
+               {/* Added Items table list */}
+              {invoiceItems.length > 0 && (
+                <div className="border border-slate-800 rounded-lg overflow-hidden text-xs max-h-48 overflow-y-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="bg-slate-950/40 text-slate-400 font-semibold border-b border-slate-800">
+                        <th className="p-2.5">Product</th>
+                        <th className="p-2.5 text-center">Qty / Unit</th>
+                        <th className="p-2.5 text-right">Rate</th>
+                        <th className="p-2.5 text-right">Disc.</th>
+                        <th className="p-2.5 text-right">GST</th>
+                        <th className="p-2.5 text-right">Total</th>
+                        <th className="p-2.5 text-center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/40 text-slate-300">
+                      {invoiceItems.map((item, idx) => {
+                        const itemSub = (item.unit === 'Ton' && item.rateBasis === 'per_kg')
+                          ? Number(item.quantity) * 1000 * Number(item.rate)
+                          : Number(item.quantity) * Number(item.rate);
+                        const itemTaxable = Math.max(0, itemSub - Number(item.discount || 0));
+                        const itemTotal = itemTaxable * (1 + Number(item.gstPercent || 0) / 100);
+                        return (
+                          <tr key={idx} className="hover:bg-slate-850/40">
+                            <td className="p-2.5 font-bold text-slate-200">{item.productName}</td>
+                            <td className="p-2.5 text-center">{item.quantity} {item.unit}</td>
+                            <td className="p-2.5 text-right">₹{item.rate} / {item.rateBasis === 'per_kg' ? 'Kg' : item.unit}</td>
+                            <td className="p-2.5 text-right">₹{item.discount}</td>
+                            <td className="p-2.5 text-right">{item.gstPercent}%</td>
+                            <td className="p-2.5 text-right font-extrabold text-emerald-400">₹{Math.round(itemTotal * 100) / 100}</td>
+                            <td className="p-2.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(idx)}
+                                className="p-1 hover:bg-red-500/10 text-slate-500 hover:text-red-400 rounded transition-all"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-                <div className="bg-slate-950/60 border border-slate-800 p-2.5 rounded-lg flex flex-col justify-center">
-                  <span className="text-[9px] font-bold text-slate-500 uppercase">Current Stock Alert</span>
-                  <span className={`text-xs font-extrabold mt-0.5 ${selectedProductStock !== null && selectedProductStock <= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                    {selectedProductStock !== null ? `${selectedProductStock} units available` : 'Select a product'}
-                  </span>
-                </div>
-              </div>
+              )}
 
-              {/* Grid 4: Quantity, Rate, Discount, Tax */}
-              <div className={`grid grid-cols-2 gap-4 ${unit === 'Ton' ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Sale Quantity *
-                  </label>
-                  <input
-                    type="number"
-                    value={quantity || ''}
-                    onChange={(e) => setQuantity(Number(e.target.value))}
-                    placeholder="Quantity"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs outline-none focus:border-amber-500 transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Selling Rate (₹) *
-                  </label>
-                  <input
-                    type="number"
-                    value={rate || ''}
-                    onChange={(e) => setRate(Number(e.target.value))}
-                    placeholder="Selling price"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs outline-none focus:border-amber-500 transition-all"
-                  />
-                </div>
-                {unit === 'Ton' && (
-                  <div>
+              {/* Subform: Add Product Item */}
+              <div className="bg-slate-950/40 border border-slate-800/80 p-4 rounded-xl space-y-4">
+                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Add Item to Invoice</div>
+                
+                {/* Grid 3: Product Name selection */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-2">
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                      Rate Basis
+                      Select Material Product *
                     </label>
                     <select
-                      value={rateBasis}
-                      onChange={(e) => setRateBasis(e.target.value as any)}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-350 text-xs outline-none focus:border-amber-500"
+                      value={productName}
+                      onChange={(e) => handleProductSelect(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-250 text-xs outline-none focus:border-amber-500 transition-all"
                     >
-                      <option value="per_kg">Rate per Kg</option>
-                      <option value="per_unit">Rate per Ton</option>
+                      <option value="">-- Choose Product --</option>
+                      {products.map((p, idx) => (
+                        <option key={idx} value={p.name}>
+                          {p.name} (Stock: {p.currentStock} {p.unit})
+                        </option>
+                      ))}
                     </select>
                   </div>
-                )}
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Discount Deduction (₹)
-                  </label>
-                  <input
-                    type="number"
-                    value={discount || ''}
-                    onChange={(e) => setDiscount(Number(e.target.value))}
-                    placeholder="Flat discount"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs outline-none focus:border-amber-500 transition-all"
-                  />
+                  <div className="bg-slate-950/60 border border-slate-800 p-2.5 rounded-lg flex flex-col justify-center">
+                    <span className="text-[9px] font-bold text-slate-500 uppercase">Current Stock Alert</span>
+                    <span className={`text-xs font-extrabold mt-0.5 ${selectedProductStock !== null && selectedProductStock <= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                      {selectedProductStock !== null ? `${selectedProductStock} units available` : 'Select a product'}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                    GST Tax %
-                  </label>
-                  <select
-                    value={gstPercent}
-                    onChange={(e) => setGstPercent(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-350 text-xs outline-none focus:border-amber-500"
-                  >
-                    <option value="0">0% (Exempt)</option>
-                    <option value="5">5%</option>
-                    <option value="12">12%</option>
-                    <option value="18">18% (Standard)</option>
-                    <option value="28">28%</option>
-                  </select>
+
+                {/* Grid 4: Quantity, Rate, Discount, Tax */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                      Sale Quantity *
+                    </label>
+                    <input
+                      type="number"
+                      value={quantity || ''}
+                      onChange={(e) => setQuantity(Number(e.target.value))}
+                      placeholder="Quantity"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs outline-none focus:border-amber-500 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                      Selling Rate (₹) *
+                    </label>
+                    <input
+                      type="number"
+                      value={rate || ''}
+                      onChange={(e) => setRate(Number(e.target.value))}
+                      placeholder="Selling price"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs outline-none focus:border-amber-500 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                      Discount Deduction (₹)
+                    </label>
+                    <input
+                      type="number"
+                      value={discount || ''}
+                      onChange={(e) => setDiscount(Number(e.target.value))}
+                      placeholder="Flat discount"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 text-xs outline-none focus:border-amber-500 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                      GST Tax %
+                    </label>
+                    <select
+                      value={gstPercent}
+                      onChange={(e) => setGstPercent(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-350 text-xs outline-none focus:border-amber-500"
+                    >
+                      <option value="0">0% (Exempt)</option>
+                      <option value="5">5%</option>
+                      <option value="12">12%</option>
+                      <option value="18">18% (Standard)</option>
+                      <option value="28">28%</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div className="flex justify-between items-center bg-slate-950/20 p-2 rounded-lg border border-slate-850">
+                  {unit === 'Ton' ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase">Rate Basis:</span>
+                      <select
+                        value={rateBasis}
+                        onChange={(e) => setRateBasis(e.target.value as any)}
+                        className="px-2 py-0.5 bg-slate-950 border border-slate-800 rounded text-slate-350 text-[10px] outline-none focus:border-amber-500"
+                      >
+                        <option value="per_kg">Rate per Kg</option>
+                        <option value="per_unit">Rate per Ton</option>
+                      </select>
+                    </div>
+                  ) : <div />}
+
+                  <div className="flex items-center gap-2">
+                    {productName && (
+                      <span className="text-[10px] text-slate-400">
+                        Item Subtotal: <strong className="text-emerald-400">₹{itemTotalAmount.toLocaleString('en-IN')}</strong>
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleAddItem}
+                      className="flex items-center gap-1 px-3 py-1 bg-slate-800 hover:bg-slate-750 text-amber-500 text-[10px] font-bold rounded-lg border border-slate-700/80 transition-all outline-none"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add to Invoice
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* Grid 5: Shipping, Total, Status */}
+              {/* Grid 5: Payment Method & Total card */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-800/60 pt-4">
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
@@ -846,8 +1076,8 @@ export const SalesManager: React.FC = () => {
                 </div>
                 <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800 flex flex-col justify-center">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Invoice Grand Total</span>
-                  <span className="text-lg font-extrabold text-emerald-400">₹{totalAmount.toLocaleString('en-IN')}</span>
-                  <span className="text-[9px] text-slate-650 italic">Taxable ₹{taxableAmount} + Tax GST ₹{gstAmount}</span>
+                  <span className="text-lg font-extrabold text-emerald-400">₹{calculatedGrandTotal.toLocaleString('en-IN')}</span>
+                  <span className="text-[9px] text-slate-650 italic">Taxable ₹{Math.round((totalSubtotal - totalDiscount) * 100) / 100} + Tax GST ₹{Math.round(totalGst * 100) / 100}</span>
                 </div>
               </div>
 

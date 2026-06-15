@@ -138,9 +138,9 @@ export const ReportCenter: React.FC = () => {
         'Sale Date': s.saleDate,
         'Customer Name': s.customerName,
         'Customer Phone': s.customerMobile,
-        'Product Details': s.productName,
-        'Quantity': s.quantity,
-        'Unit Rate': s.rate,
+        'Product Details': s.items && s.items.length > 0 ? s.items.map((it: any) => it.productName).join(', ') : s.productName,
+        'Quantity': s.items && s.items.length > 0 ? s.items.map((it: any) => `${it.quantity} ${it.unit || 'Kg'}`).join(', ') : `${s.quantity} ${s.unit || 'Kg'}`,
+        'Unit Rate': s.items && s.items.length > 0 ? s.items.map((it: any) => `₹${it.rate}/${it.unit || 'Kg'}`).join(', ') : `₹${s.rate}/${s.unit || 'Kg'}`,
         'Discount': s.discount,
         'GST %': s.gstPercent,
         'Total Invoice Value': s.totalAmount,
@@ -453,10 +453,18 @@ export const ReportCenter: React.FC = () => {
                         <td className="p-4 font-mono font-bold text-amber-500 print:text-black">{s.invoiceNumber}</td>
                         <td className="p-4">{s.saleDate}</td>
                         <td className="p-4 font-semibold text-slate-200 print:text-black">{s.customerName}</td>
-                        <td className="p-4">{s.productName}</td>
-                        <td className="p-4 text-center font-semibold">{s.quantity}</td>
-                        <td className="p-4 text-right">₹{s.rate}</td>
-                        <td className="p-4 text-right">{s.gstPercent}%</td>
+                        <td className="p-4">
+                          {s.items && s.items.length > 0 ? s.items.map((it: any) => it.productName).join(', ') : s.productName}
+                        </td>
+                        <td className="p-4 text-center font-semibold">
+                          {s.items && s.items.length > 0 ? s.items.map((it: any) => `${it.quantity} ${it.unit || 'Kg'}`).join(', ') : `${s.quantity} ${s.unit || 'Kg'}`}
+                        </td>
+                        <td className="p-4 text-right">
+                          {s.items && s.items.length > 0 ? s.items.map((it: any) => `₹${it.rate}`).join(', ') : `₹${s.rate}`}
+                        </td>
+                        <td className="p-4 text-right">
+                          {s.items && s.items.length > 0 ? s.items.map((it: any) => `${it.gstPercent}%`).join(', ') : `${s.gstPercent}%`}
+                        </td>
                         <td className="p-4 text-right font-extrabold text-slate-100 print:text-black">₹{Number(s.totalAmount).toLocaleString('en-IN')}</td>
                       </tr>
                     ))
